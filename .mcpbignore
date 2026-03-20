@@ -1,0 +1,10 @@
+node_modules/
+src/
+*.ts
+!*.d.ts
+tsconfig.json
+.git/
+.gitignore
+.claude/
+*.mcpb
+docs/

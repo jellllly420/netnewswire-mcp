@@ -1,0 +1,58 @@
+{
+  "manifest_version": "0.3",
+  "name": "netnewswire-mcp",
+  "display_name": "NetNewsWire",
+  "version": "0.1.0",
+  "description": "Interact with your NetNewsWire RSS feeds from Claude — summarize articles, manage subscriptions, and stay on top of your reading.",
+  "long_description": "An MCP server that connects Claude to NetNewsWire via AppleScript on macOS. Browse feeds, fetch and search articles, mark as read/starred, and subscribe to new feeds. Perfect for daily article summaries and feed management workflows.",
+  "author": {
+    "name": "jelly"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jelly/netnewswire-mcp.git"
+  },
+  "icon": "docs/logo.png",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"]
+    }
+  },
+  "tools": [
+    {
+      "name": "list_feeds",
+      "description": "List all subscribed feeds and folders, optionally filtered by account."
+    },
+    {
+      "name": "get_articles",
+      "description": "Fetch articles with filters: unread, starred, by feed, or recent."
+    },
+    {
+      "name": "read_article",
+      "description": "Get the full content of a specific article by ID."
+    },
+    {
+      "name": "mark_articles",
+      "description": "Mark articles as read/unread or starred/unstarred."
+    },
+    {
+      "name": "subscribe",
+      "description": "Subscribe to a new RSS feed by URL."
+    },
+    {
+      "name": "search_articles",
+      "description": "Search articles by keyword across all feeds."
+    }
+  ],
+  "keywords": ["netnewswire", "rss", "feeds", "news", "applescript", "macos"],
+  "compatibility": {
+    "platforms": ["darwin"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "license": "MIT"
+}
