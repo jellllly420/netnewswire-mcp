@@ -25,6 +25,10 @@
     "claude",
     "applescript"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jellllly420/netnewswire-mcp"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
