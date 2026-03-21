@@ -12,12 +12,12 @@ An MCP server that connects Claude to [NetNewsWire](https://netnewswire.com/) vi
 
 ### Option 1: MCP Bundle (.mcpb)
 
-Download the `.mcpb` file from [Releases](https://github.com/jelly/netnewswire-mcp/releases) and double-click to install in Claude Desktop.
+Download the `.mcpb` file from [Releases](https://github.com/jellllly420/netnewswire-mcp/releases) and double-click to install in Claude Desktop.
 
 ### Option 2: Build from Source
 
 ```bash
-git clone https://github.com/jelly/netnewswire-mcp.git
+git clone https://github.com/jellllly420/netnewswire-mcp.git
 cd netnewswire-mcp
 npm install
 npm run build
