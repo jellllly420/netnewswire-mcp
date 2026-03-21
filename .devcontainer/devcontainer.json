@@ -1,0 +1,18 @@
+{
+  "name": "netnewswire-mcp-dev",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "remoteUser": "node",
+  "containerEnv": {
+    "SHELL": "/bin/zsh"
+  },
+  "runArgs": [],
+  "mounts": [
+    "source=${localEnv:HOME}/.gitconfig,target=/home/node/.gitconfig,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.ssh,target=/home/node/.ssh,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.gnupg,target=/home/node/.gnupg,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.claude/settings.json,target=/home/node/.claude/settings.json,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.claude/skills,target=/home/node/.claude/skills,type=bind,consistency=cached"
+  ],
+  "postCreateCommand": "sudo chown -R $(id -u):$(id -g) ~/.ssh && chmod 700 ~/.ssh && sudo chown -R $(id -u):$(id -g) ~/.gnupg && chmod 700 ~/.gnupg && sudo chown -R $(id -u):$(id -g) ~/.claude && curl -fsSL https://claude.ai/install.sh | bash && echo 'alias claude=\"claude --dangerously-skip-permissions\"' >> ~/.zshrc && curl -LsSf https://astral.sh/uv/install.sh | sh && npm install -g typescript-language-server typescript && npm ci"
+}
