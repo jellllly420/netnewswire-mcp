@@ -1,6 +1,6 @@
 {
   "name": "@jellllly/netnewswire-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "MCP server for NetNewsWire — interact with your RSS feeds from Claude",
   "type": "module",
   "bin": {
@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "bundle": "node --input-type=module -e \"import{build}from'esbuild';build({entryPoints:['dist/index.js'],bundle:true,platform:'node',format:'esm',outfile:'dist/bundle.js',banner:{js:'#!/usr/bin/env node'}})\"",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "lint": "eslint src/",
@@ -39,6 +40,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.27.4",
     "eslint": "^9.0.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.0.0",

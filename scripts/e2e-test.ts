@@ -120,7 +120,7 @@ async function run() {
 
   const serverInfo = initData?.serverInfo as Record<string, string>;
   assert(serverInfo?.name === "NetNewsWire", `Server name is "NetNewsWire" (got "${serverInfo?.name}")`);
-  assert(serverInfo?.version === "0.1.1", `Server version is "0.1.1" (got "${serverInfo?.version}")`);
+  assert(serverInfo?.version === "0.1.2", `Server version is "0.1.2" (got "${serverInfo?.version}")`);
 
   // Send initialized notification
   sendNotification("notifications/initialized");
