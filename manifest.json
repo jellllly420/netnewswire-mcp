@@ -14,10 +14,10 @@
   },
   "server": {
     "type": "node",
-    "entry_point": "dist/bundle.js",
+    "entry_point": "dist/index.js",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/dist/bundle.js"]
+      "args": ["${__dirname}/dist/index.js"]
     }
   },
   "tools": [
