@@ -38,8 +38,9 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci --omit=dev
+      - run: npm ci
       - run: npm run build
+      - run: npm prune --omit=dev
 
       - name: Install mcpb CLI
         run: npm install -g @anthropic-ai/mcpb
