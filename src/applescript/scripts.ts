@@ -14,7 +14,7 @@
 export const scripts = {
   /**
    * List all accounts with their feeds and folders.
-   * Uses `allFeeds` (the sdef property) for top-level feed enumeration.
+   * Uses `every feed of acct` for top-level feeds (not in any folder).
    */
   listFeeds: (accountName?: string) => {
     const accountFilter = accountName
@@ -29,7 +29,7 @@ tell application "NetNewsWire"
     set output to output & "ACCOUNT:" & acctName & "|" & acctActive & linefeed
 
     -- Top-level feeds (not in folders)
-    repeat with f in allFeeds of acct
+    repeat with f in every feed of acct
       set fName to name of f
       set fUrl to url of f
       set fHome to ""
