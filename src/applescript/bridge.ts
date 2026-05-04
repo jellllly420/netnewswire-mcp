@@ -3,15 +3,27 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+interface RunOptions {
+  /** osascript subprocess timeout in ms. Defaults to 60s. */
+  timeoutMs?: number;
+}
+
 /**
  * Execute an AppleScript string via osascript and return stdout.
  * Throws if NetNewsWire is not running or the script fails.
  */
-export async function runAppleScript(script: string): Promise<string> {
+export async function runAppleScript(
+  script: string,
+  options: RunOptions = {}
+): Promise<string> {
   try {
     const { stdout } = await execFileAsync("osascript", ["-e", script], {
       maxBuffer: 10 * 1024 * 1024, // 10MB — articles can be large
-      timeout: 30_000,
+      // Long default to accommodate large NetNewsWire libraries. Individual
+      // scripts that are inherently slow (e.g. write operations across many
+      // feeds) should also wrap their work in `with timeout` at the
+      // AppleScript layer, which caps individual Apple Events.
+      timeout: options.timeoutMs ?? 60_000,
     });
     return stdout.trim();
   } catch (error: unknown) {

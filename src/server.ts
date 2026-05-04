@@ -7,7 +7,7 @@ import { parseListFeeds, parseArticles, parseFullArticle } from "./parsers.js";
 export function createServer(): McpServer {
   const server = new McpServer({
     name: "NetNewsWire",
-    version: "0.1.2",
+    version: "0.1.3",
   });
 
   registerTools(server);
@@ -104,19 +104,31 @@ function registerTools(server: McpServer): void {
   // ── mark_articles ───────────────────────────────────────────────
   server.tool(
     "mark_articles",
-    "Mark one or more articles as read, unread, starred, or unstarred.",
+    "Mark one or more articles as read, unread, starred, or unstarred. " +
+      "Prefer batching IDs into a single call (e.g. 50–200 per call) over many " +
+      "single-article calls — each call still has to scan feeds, so one batched " +
+      "call is dramatically cheaper than many sequential ones.",
     {
       articleIds: z
         .array(z.string())
         .min(1)
-        .describe("Array of article IDs to update"),
+        .max(200)
+        .describe(
+          "Array of article IDs to update (max 200 per call; for larger sets, split into multiple calls)"
+        ),
       action: z
         .enum(["read", "unread", "starred", "unstarred"])
         .describe("Action to perform"),
     },
     async ({ articleIds, action }) => {
       await ensureRunning();
-      const raw = await runAppleScript(scripts.markArticles(articleIds, action));
+      // Write operations on large libraries can take longer than the default
+      // 60s subprocess timeout. The AppleScript itself caps individual Apple
+      // Events at 300s via `with timeout`, so match that here.
+      const raw = await runAppleScript(
+        scripts.markArticles(articleIds, action),
+        { timeoutMs: 300_000 }
+      );
       const count = raw.match(/MARKED:(\d+)/)?.[1] ?? "0";
       return {
         content: [
