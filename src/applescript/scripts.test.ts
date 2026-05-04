@@ -77,6 +77,33 @@ describe("scripts.markArticles", () => {
     });
   });
 
+  // ── Error handling: systemic vs. per-feed transient ──────────────────
+  describe("error handling", () => {
+    it("attaches an `on error` handler so errors aren't blindly swallowed", () => {
+      // A bare `try ... end try` (no `on error` block) hides everything,
+      // including automation-permission failures that would otherwise
+      // surface to the user as actionable errors.
+      const s = scripts.markArticles(["abc"], "starred");
+      expect(s).toContain("on error errMsg number errNum");
+    });
+
+    it("rethrows the five systemic Apple Event error codes", () => {
+      const s = scripts.markArticles(["abc"], "starred");
+      // -128 user cancelled, -600 not running, -609 connection invalid,
+      // -1712 timeout, -1743 not authorized. These are the failures the
+      // user actually needs to see — not "MARKED:0 because we silently
+      // swallowed the permission error on every feed".
+      for (const code of [-128, -600, -609, -1712, -1743]) {
+        expect(s).toContain(`errNum is ${code}`);
+      }
+    });
+
+    it("rethrows by re-raising the original error number", () => {
+      const s = scripts.markArticles(["abc"], "starred");
+      expect(s).toContain("error errMsg number errNum");
+    });
+  });
+
   // ── action → property/value mapping ──────────────────────────────────
   describe("action mapping", () => {
     it("read sets the read property to true", () => {
