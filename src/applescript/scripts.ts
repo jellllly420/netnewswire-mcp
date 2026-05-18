@@ -155,51 +155,84 @@ end tell`;
 
   /**
    * Read the full content of a specific article by ID.
+   *
+   * Performance notes (pre-emptive fix, same shape as markArticles #2/#4):
+   * - Uses a `whose` clause so NetNewsWire performs the ID filter natively,
+   *   instead of issuing one Apple Event per article across the IPC boundary.
+   *   The pre-fix shape walked `every article of nthFeed` and compared IDs
+   *   one-by-one, which on a large library with a cold cache could blow
+   *   past Node's 60s subprocess timeout and Apple's -1712 default.
+   * - Returns from inside the feed loop the moment a match comes back,
+   *   so we don't keep scanning remaining feeds after we've found it.
+   * - Wraps in `with timeout of 300 seconds` so individual Apple Events
+   *   don't fail with -1712 on large libraries.
+   *
+   * Error handling mirrors markArticles: per-feed `try` so a transient
+   * glitch on one feed doesn't abort the whole lookup, but the five
+   * systemic codes are re-raised so the caller sees actionable failures
+   * instead of a misleading "Article not found".
    */
   readArticle: (articleId: string) => `
 tell application "NetNewsWire"
-  repeat with acct in every account
-    repeat with nthFeed in allFeeds of acct
-      repeat with a in every article of nthFeed
-        if id of a is "${escapeForAppleScript(articleId)}" then
-          set aTitle to ""
-          try
-            set aTitle to title of a
-          end try
-          set aUrl to ""
-          try
-            set aUrl to url of a
-          end try
-          set aHtml to ""
-          try
-            set aHtml to html of a
-          end try
-          set aText to ""
-          try
-            set aText to contents of a
-          end try
-          set aSummary to ""
-          try
-            set aSummary to summary of a
-          end try
-          set aDate to ""
-          try
-            set aDate to published date of a as string
-          end try
-          set aRead to read of a
-          set aStarred to starred of a
-          set aFeed to name of feed of a
-          set aAuthors to ""
-          try
-            repeat with auth in every author of a
-              set aAuthors to aAuthors & name of auth & ", "
-            end repeat
-          end try
-          return "TITLE:" & aTitle & linefeed & "URL:" & aUrl & linefeed & "FEED:" & aFeed & linefeed & "DATE:" & aDate & linefeed & "READ:" & aRead & linefeed & "STARRED:" & aStarred & linefeed & "AUTHORS:" & aAuthors & linefeed & "SUMMARY:" & aSummary & linefeed & "HTML:" & aHtml & linefeed & "TEXT:" & aText
-        end if
+  with timeout of 300 seconds
+    repeat with acct in every account
+      repeat with nthFeed in allFeeds of acct
+        try
+          set matched to (every article of nthFeed whose (id is "${escapeForAppleScript(articleId)}"))
+          if (count of matched) > 0 then
+            set a to item 1 of matched
+            set aTitle to ""
+            try
+              set aTitle to title of a
+            end try
+            set aUrl to ""
+            try
+              set aUrl to url of a
+            end try
+            set aHtml to ""
+            try
+              set aHtml to html of a
+            end try
+            set aText to ""
+            try
+              set aText to contents of a
+            end try
+            set aSummary to ""
+            try
+              set aSummary to summary of a
+            end try
+            set aDate to ""
+            try
+              set aDate to published date of a as string
+            end try
+            set aRead to read of a
+            set aStarred to starred of a
+            set aFeed to name of feed of a
+            set aAuthors to ""
+            try
+              repeat with auth in every author of a
+                set aAuthors to aAuthors & name of auth & ", "
+              end repeat
+            end try
+            return "TITLE:" & aTitle & linefeed & "URL:" & aUrl & linefeed & "FEED:" & aFeed & linefeed & "DATE:" & aDate & linefeed & "READ:" & aRead & linefeed & "STARRED:" & aStarred & linefeed & "AUTHORS:" & aAuthors & linefeed & "SUMMARY:" & aSummary & linefeed & "HTML:" & aHtml & linefeed & "TEXT:" & aText
+          end if
+        on error errMsg number errNum
+          -- Re-raise systemic errors so the caller sees them instead of
+          -- a misleading "Article not found". Per-feed transient errors
+          -- are still swallowed so one bad feed doesn't kill an
+          -- otherwise-working lookup. Codes:
+          --   -128  user cancelled
+          --   -600  application not running
+          --   -609  connection invalid
+          --   -1712 Apple Event timed out (despite the outer 300s wrapper)
+          --   -1743 not authorized (automation permission denied)
+          if errNum is -128 or errNum is -600 or errNum is -609 or errNum is -1712 or errNum is -1743 then
+            error errMsg number errNum
+          end if
+        end try
       end repeat
     end repeat
-  end repeat
+  end timeout
   return "ERROR:Article not found"
 end tell`,
 
