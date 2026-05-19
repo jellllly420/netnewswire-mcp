@@ -89,7 +89,16 @@ function registerTools(server: McpServer): void {
     },
     async ({ articleId }) => {
       await ensureRunning();
-      const raw = await runAppleScript(scripts.readArticle(articleId));
+      // Cold-cache or missing-ID lookups walk every feed in every
+      // account, which can exceed the bridge's default 60s subprocess
+      // timeout on large libraries. The AppleScript itself caps
+      // individual Apple Events at 300s via `with timeout`, so the
+      // subprocess budget must match — otherwise Node kills osascript
+      // before the AppleScript-side -1712 re-raise can take effect.
+      const raw = await runAppleScript(
+        scripts.readArticle(articleId),
+        { timeoutMs: 300_000 }
+      );
       if (raw.startsWith("ERROR:")) {
         return {
           content: [{ type: "text", text: raw.substring(6) }],

@@ -234,21 +234,124 @@ describe("scripts.getArticles", () => {
 });
 
 describe("scripts.readArticle", () => {
-  it("matches by article id", () => {
-    const s = scripts.readArticle("abc-123");
-    expect(s).toContain('if id of a is "abc-123"');
+  // ── Performance-critical structure (pre-emptive fix mirroring #2 / #4) ─
+  //
+  // The pre-fix shape was:
+  //   repeat with acct in every account
+  //     repeat with nthFeed in allFeeds of acct
+  //       repeat with a in every article of nthFeed
+  //         if id of a is "..." then ...
+  //
+  // That's one Apple Event per article per property access — vulnerable
+  // to the same -1712 / 60s Node-subprocess timeout that markArticles
+  // and searchArticles hit on large libraries with a cold cache. The fix
+  // mirrors markArticles: push the predicate into NNW via `whose`, wrap
+  // in `with timeout`, and add per-feed `on error` handling that
+  // re-raises systemic codes.
+  describe("performance structure", () => {
+    it("uses a `whose` clause to push the ID filter into NetNewsWire", () => {
+      const s = scripts.readArticle("abc-123");
+      // The filter must run inside NNW (one Apple Event per feed), not
+      // out here (one Apple Event per article).
+      expect(s).toContain('every article of nthFeed whose (id is "abc-123")');
+    });
+
+    it("does not fall back to per-article `id of a is` iteration", () => {
+      const s = scripts.readArticle("abc");
+      // Pre-fix anti-pattern: `repeat with a in every article ... if id of a is`.
+      // Reintroducing it would put us back at the 60s subprocess timeout
+      // on cold-cache reads.
+      expect(s).not.toMatch(/repeat with a in every article[\s\S]*if id of a is/);
+    });
+
+    it("does NOT use the `is in {...}` membership operator", () => {
+      // NetNewsWire's scripting layer silently returns no matches for
+      // `whose id is in {...}`. Locked down so a future refactor doesn't
+      // reach for it as the "obvious" replacement.
+      const s = scripts.readArticle("abc");
+      expect(s).not.toMatch(/whose [^()]*is in \{/);
+    });
+
+    it("wraps the work in `with timeout of 300 seconds`", () => {
+      // The default Apple Event timeout is 60s. On a cold cache reading
+      // back the full body of an article from a large library, that's
+      // not enough — bump to 5 min to match markArticles.
+      const s = scripts.readArticle("abc");
+      expect(s).toContain("with timeout of 300 seconds");
+      expect(s).toContain("end timeout");
+    });
+
+    it("returns early as soon as the matching article is found", () => {
+      // readArticle's early-exit shape is `return` from inside the feed
+      // loop the moment a non-empty match comes back — the equivalent of
+      // markArticles' `exit repeat`. Without this, even a successful
+      // match would keep scanning every remaining feed before answering.
+      const s = scripts.readArticle("abc");
+      // The return must be assembled from a matched article (TITLE:...)
+      // and live inside the loop body, before the not-found sentinel.
+      const notFoundIdx = s.indexOf('"ERROR:Article not found"');
+      const titleReturnIdx = s.indexOf('return "TITLE:"');
+      expect(titleReturnIdx).toBeGreaterThan(0);
+      expect(notFoundIdx).toBeGreaterThan(titleReturnIdx);
+    });
+
+    it("preserves the ERROR:Article not found sentinel for misses", () => {
+      // server.ts surfaces this string to the caller verbatim; if the
+      // fix accidentally drops it, every miss becomes an empty success.
+      const s = scripts.readArticle("missing");
+      expect(s).toContain('return "ERROR:Article not found"');
+    });
   });
 
-  it("returns ERROR:Article not found when no match exists", () => {
-    const s = scripts.readArticle("missing");
-    expect(s).toContain('return "ERROR:Article not found"');
+  // ── Error handling: systemic vs. per-feed transient ──────────────────
+  describe("error handling", () => {
+    it("attaches an `on error` handler so errors aren't blindly swallowed", () => {
+      const s = scripts.readArticle("abc");
+      expect(s).toContain("on error errMsg number errNum");
+    });
+
+    it("rethrows the five systemic Apple Event error codes", () => {
+      const s = scripts.readArticle("abc");
+      // Same five codes as markArticles — the failures the user actually
+      // needs to see, not silently turn into "Article not found".
+      //   -128 user cancelled
+      //   -600 application not running
+      //   -609 connection invalid
+      //   -1712 Apple Event timed out (despite the outer 300s wrapper)
+      //   -1743 not authorized (automation permission denied)
+      for (const code of [-128, -600, -609, -1712, -1743]) {
+        expect(s).toContain(`errNum is ${code}`);
+      }
+    });
+
+    it("re-raises by preserving the original error number", () => {
+      const s = scripts.readArticle("abc");
+      expect(s).toContain("error errMsg number errNum");
+    });
   });
 
-  it("escapes special characters in the article ID", () => {
-    const s = scripts.readArticle('a"b');
-    expect(s).toContain('if id of a is "a\\"b"');
+  // ── ID escaping (injection / quoting safety) ─────────────────────────
+  describe("id escaping", () => {
+    it("escapes double quotes in the article ID inside the whose clause", () => {
+      const s = scripts.readArticle('a"b');
+      expect(s).toContain('whose (id is "a\\"b")');
+    });
+
+    it("escapes backslashes in the article ID", () => {
+      // JS literal "a\\b" is the 3-char string a\b. After escape it's a\\b
+      // in AppleScript source, which is `"a\\\\b"` in JS source.
+      const s = scripts.readArticle("a\\b");
+      expect(s).toContain('whose (id is "a\\\\b")');
+    });
+
+    it("preserves realistic URL-style IDs without mangling", () => {
+      const id = "http://example.com/feed/article-1.html";
+      const s = scripts.readArticle(id);
+      expect(s).toContain(`whose (id is "${id}")`);
+    });
   });
 
+  // ── Output contract for parseFullArticle ─────────────────────────────
   it("emits all field prefixes the parseFullArticle parser expects", () => {
     const s = scripts.readArticle("x");
     for (const prefix of ["TITLE:", "URL:", "FEED:", "DATE:", "READ:", "STARRED:", "AUTHORS:", "SUMMARY:", "HTML:", "TEXT:"]) {
