@@ -297,7 +297,72 @@ end tell`;
   },
 
   /**
-   * Search articles by keyword in title and contents.
+   * Search articles by keyword in title and body content.
+   *
+   * Performance notes (fixes #6):
+   * - Uses a `whose` clause so NetNewsWire performs the substring match natively,
+   *   instead of materialising every article across the Apple Event IPC boundary
+   *   just to compare two strings in AppleScript. Pre-fix shape was an unfiltered
+   *   `repeat with a in every article of nthFeed` that fetched `contents of a`
+   *   for every article in the library — which exceeded the bridge's 60 s
+   *   subprocess cap for any non-trivial library and surfaced as the misleading
+   *   "Command failed: osascript -e <script>" error in #6.
+   * - Wraps in `with timeout of 300 seconds` so individual Apple Events don't
+   *   fail with -1712 on large libraries before our outer cap kicks in.
+   * - Early-exits at every loop level (account, feed, match) as soon as the
+   *   limit is reached, so once we have N results we don't keep scanning.
+   * - Per-feed try/on-error mirrors `markArticles`: per-feed transient glitches
+   *   are swallowed so one bad feed doesn't kill an otherwise-working search,
+   *   but the five systemic Apple Event errors (-128, -600, -609, -1712, -1743)
+   *   are re-raised so the caller gets an actionable failure instead of an
+   *   empty result.
+   *
+   * Why we OR four predicates (title / html / contents / summary):
+   *
+   * NetNewsWire exposes four `text read-only` properties on `article` that
+   * can carry body content, and which ones are populated depends on the feed
+   * format. The iteration-3 caveat ("body matching is opportunistic, often
+   * doesn't work") was wrong; the iteration-4 fix was sourced from a walk
+   * of the NetNewsWire codebase at commit
+   *   c9d54214e346fc6cfa33724fdbfea3f96ac4e8d5
+   * and confirmed empirically against the same five feeds that had returned
+   * 0 body-matches in iteration-3 diagnostics.
+   *
+   * Property → backing field mapping (from
+   * Mac/Scripting/Article+Scriptability.swift):
+   *   title    → article.title
+   *   html     → article.contentHTML  ?? ""
+   *   contents → article.contentText  ?? ""
+   *   summary  → article.summary      ?? ""
+   *
+   * Which fields get populated, by feed format:
+   *   RSS  : Modules/RSParser/Sources/RSParser/Feeds/XML/RSSItem.swift
+   *          hardcodes ParsedItem(contentText: nil, contentHTML: <body>, ...).
+   *          So contentText is ALWAYS nil for RSS — `contents` is empty.
+   *          The body bytes land in contentHTML, exposed via `html`.
+   *   Atom : The Atom parser may populate contentText and/or summary in
+   *          addition to contentHTML, depending on what the feed includes.
+   *
+   * NetNewsWire's own GUI search uses an FTS4 virtual table over
+   * `contentHTML || contentText || summary` (priority order, first non-empty
+   * wins; see Modules/ArticlesDatabase/Sources/ArticlesDatabase/SearchTable.swift).
+   * We mirror that union here via the whose-clause OR — though we don't
+   * apply NNW's priority order because the whose-clause already short-circuits
+   * once any predicate matches, which is equivalent for "did this article
+   * match" semantics.
+   *
+   * Empirical evidence (jellllly420's library, 2026-05-19):
+   *   matklad         : contents=0, summary=0, html=8280
+   *   Inside Rust Blog: contents=0, summary=0, html=19096
+   *   Brendan Gregg   : contents=0, summary=0, html=8555
+   *   This Week in Rust: contents=0, summary=0, html=39667
+   *   Rust Blog       : contents=0, summary=0, html=197711
+   *
+   * Why keep `contents` and `summary` in the OR even though they were empty
+   * for the sampled RSS feeds: Atom-format feeds populate them independently,
+   * and dropping them would be a behavioural regression for any Atom feed
+   * in a NNW library. All four predicates are evaluated natively by NNW
+   * (single Apple Event per feed regardless of predicate count).
    */
   searchArticles: (query: string, limit?: number) => {
     const maxResults = limit ?? 20;
@@ -307,39 +372,50 @@ tell application "NetNewsWire"
   set matchCount to 0
   set maxResults to ${maxResults}
   set searchTerm to "${escapeForAppleScript(query)}"
-  repeat with acct in every account
-    if matchCount ≥ maxResults then exit repeat
-    repeat with nthFeed in allFeeds of acct
+  with timeout of 300 seconds
+    repeat with acct in every account
       if matchCount ≥ maxResults then exit repeat
-      repeat with a in every article of nthFeed
+      repeat with nthFeed in allFeeds of acct
         if matchCount ≥ maxResults then exit repeat
-        set aTitle to ""
         try
-          set aTitle to title of a
+          set matched to (every article of nthFeed whose (title contains searchTerm or html contains searchTerm or contents contains searchTerm or summary contains searchTerm))
+          repeat with a in matched
+            if matchCount ≥ maxResults then exit repeat
+            set aId to id of a
+            set aTitle to ""
+            try
+              set aTitle to title of a
+            end try
+            set aUrl to ""
+            try
+              set aUrl to url of a
+            end try
+            set aDate to ""
+            try
+              set aDate to published date of a as string
+            end try
+            set aFeed to name of feed of a
+            set isRead to read of a
+            set isStarred to starred of a
+            set output to output & "ARTICLE:" & aId & "|" & aTitle & "|" & aUrl & "|" & isRead & "|" & isStarred & "|" & aDate & "|" & aFeed & linefeed
+            set matchCount to matchCount + 1
+          end repeat
+        on error errMsg number errNum
+          -- Re-raise systemic errors so the caller sees them instead of an
+          -- empty result. Per-feed transient errors are still swallowed so
+          -- one bad feed doesn't kill an otherwise-working search. Codes:
+          --   -128  user cancelled
+          --   -600  application not running
+          --   -609  connection invalid
+          --   -1712 Apple Event timed out (despite the outer 300s wrapper)
+          --   -1743 not authorized (automation permission denied)
+          if errNum is -128 or errNum is -600 or errNum is -609 or errNum is -1712 or errNum is -1743 then
+            error errMsg number errNum
+          end if
         end try
-        set aText to ""
-        try
-          set aText to contents of a
-        end try
-        if aTitle contains searchTerm or aText contains searchTerm then
-          set aId to id of a
-          set aUrl to ""
-          try
-            set aUrl to url of a
-          end try
-          set aDate to ""
-          try
-            set aDate to published date of a as string
-          end try
-          set aFeed to name of feed of a
-          set isRead to read of a
-          set isStarred to starred of a
-          set output to output & "ARTICLE:" & aId & "|" & aTitle & "|" & aUrl & "|" & isRead & "|" & isStarred & "|" & aDate & "|" & aFeed & linefeed
-          set matchCount to matchCount + 1
-        end if
       end repeat
     end repeat
-  end repeat
+  end timeout
   return output
 end tell`;
   },

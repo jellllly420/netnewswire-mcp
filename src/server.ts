@@ -169,7 +169,7 @@ function registerTools(server: McpServer): void {
   // ── search_articles ─────────────────────────────────────────────
   server.tool(
     "search_articles",
-    "Search articles by keyword in titles and content across all feeds.",
+    "Search articles by keyword in titles and body content across all feeds.",
     {
       query: z.string().describe("Search keyword or phrase"),
       limit: z
@@ -181,7 +181,17 @@ function registerTools(server: McpServer): void {
     },
     async ({ query, limit }) => {
       await ensureRunning();
-      const raw = await runAppleScript(scripts.searchArticles(query, limit));
+      // Search across large libraries can take longer than the default 60s
+      // subprocess timeout, even with the whose-clause filter pushdown. The
+      // AppleScript itself wraps the iteration in `with timeout of 300 seconds`
+      // and re-raises -1712 as an actionable error; the subprocess cap must
+      // be ≥ that, otherwise Node kills osascript before the AppleScript-side
+      // error handling can fire and the caller sees the same misleading
+      // "Command failed: osascript -e <script>" shape as the original bug (#6).
+      const raw = await runAppleScript(
+        scripts.searchArticles(query, limit),
+        { timeoutMs: 300_000 }
+      );
       const articles = parseArticles(raw);
       return {
         content: [
